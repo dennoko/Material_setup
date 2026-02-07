@@ -17,7 +17,9 @@ namespace MaterialSetup
         /// <summary>
         /// 指定したGameObjectとその子のメッシュに含まれるマテリアルを複製し、参照を差し替える
         /// </summary>
-        public static void CloneMaterials(GameObject target)
+        /// <param name="target">対象のGameObject</param>
+        /// <param name="asVariant">trueの場合、Material Variantとして作成</param>
+        public static void CloneMaterials(GameObject target, bool asVariant = false)
         {
             if (target == null)
             {
@@ -34,7 +36,8 @@ namespace MaterialSetup
                 return;
             }
 
-            Undo.SetCurrentGroupName("マテリアルを複製して差し替え");
+            string operationName = asVariant ? "Material Variantを作成して差し替え" : "マテリアルを複製して差し替え";
+            Undo.SetCurrentGroupName(operationName);
             int undoGroup = Undo.GetCurrentGroup();
 
             int clonedCount = 0;
@@ -44,7 +47,10 @@ namespace MaterialSetup
                 Material original = kvp.Key;
                 List<RendererMaterialSlot> slots = kvp.Value;
 
-                Material cloned = CloneAndSaveMaterial(original);
+                Material cloned = asVariant 
+                    ? CreateAndSaveMaterialVariant(original) 
+                    : CloneAndSaveMaterial(original);
+                    
                 if (cloned != null)
                 {
                     ReplaceMaterialReferences(slots, original, cloned);
@@ -54,7 +60,10 @@ namespace MaterialSetup
 
             Undo.CollapseUndoOperations(undoGroup);
 
-            Debug.Log($"{clonedCount}個のマテリアルを複製しました。");
+            string resultMessage = asVariant 
+                ? $"{clonedCount}個のMaterial Variantを作成しました。" 
+                : $"{clonedCount}個のマテリアルを複製しました。";
+            Debug.Log(resultMessage);
         }
 
         /// <summary>
@@ -100,14 +109,7 @@ namespace MaterialSetup
             }
 
             string destFolder = GetCloneFolderPath(originalPath);
-
-            // フォルダが存在しない場合は作成
-            if (!AssetDatabase.IsValidFolder(destFolder))
-            {
-                string parentFolder = Path.GetDirectoryName(destFolder).Replace("\\", "/");
-                string newFolderName = Path.GetFileName(destFolder);
-                AssetDatabase.CreateFolder(parentFolder, newFolderName);
-            }
+            EnsureFolderExists(destFolder);
 
             // ユニークな名前を生成
             string baseName = GetBaseName(original.name);
@@ -121,6 +123,49 @@ namespace MaterialSetup
             AssetDatabase.CreateAsset(cloned, destPath);
 
             return AssetDatabase.LoadAssetAtPath<Material>(destPath);
+        }
+
+        /// <summary>
+        /// Material Variantを作成して保存する
+        /// </summary>
+        private static Material CreateAndSaveMaterialVariant(Material original)
+        {
+            string originalPath = AssetDatabase.GetAssetPath(original);
+            if (string.IsNullOrEmpty(originalPath))
+            {
+                Debug.LogWarning($"マテリアル '{original.name}' のパスを取得できませんでした。");
+                return null;
+            }
+
+            string destFolder = GetCloneFolderPath(originalPath);
+            EnsureFolderExists(destFolder);
+
+            // ユニークな名前を生成
+            string baseName = GetBaseName(original.name);
+            string uniqueName = GetUniqueMaterialName(baseName, destFolder);
+
+            // Material Variantを作成
+            Material variant = new Material(original);
+            variant.name = uniqueName;
+            variant.parent = original;
+
+            string destPath = $"{destFolder}/{uniqueName}.mat";
+            AssetDatabase.CreateAsset(variant, destPath);
+
+            return AssetDatabase.LoadAssetAtPath<Material>(destPath);
+        }
+
+        /// <summary>
+        /// フォルダが存在しない場合は作成する
+        /// </summary>
+        private static void EnsureFolderExists(string folderPath)
+        {
+            if (!AssetDatabase.IsValidFolder(folderPath))
+            {
+                string parentFolder = Path.GetDirectoryName(folderPath).Replace("\\", "/");
+                string newFolderName = Path.GetFileName(folderPath);
+                AssetDatabase.CreateFolder(parentFolder, newFolderName);
+            }
         }
 
         /// <summary>
