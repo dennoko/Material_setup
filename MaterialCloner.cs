@@ -41,29 +41,49 @@ namespace MaterialSetup
             int undoGroup = Undo.GetCurrentGroup();
 
             int clonedCount = 0;
+            int skippedCount = 0;
 
             foreach (var kvp in materialRenderers)
             {
-                Material original = kvp.Key;
-                List<RendererMaterialSlot> slots = kvp.Value;
-
-                Material cloned = asVariant 
-                    ? CreateAndSaveMaterialVariant(original) 
-                    : CloneAndSaveMaterial(original);
-                    
-                if (cloned != null)
+                try
                 {
-                    ReplaceMaterialReferences(slots, original, cloned);
-                    clonedCount++;
+                    Material original = kvp.Key;
+                    List<RendererMaterialSlot> slots = kvp.Value;
+
+                    Material cloned = asVariant 
+                        ? CreateAndSaveMaterialVariant(original) 
+                        : CloneAndSaveMaterial(original);
+                        
+                    if (cloned != null)
+                    {
+                        ReplaceMaterialReferences(slots, original, cloned);
+                        clonedCount++;
+                    }
+                    else
+                    {
+                        skippedCount++;
+                    }
+                }
+                catch (System.Exception ex)
+                {
+                    skippedCount++;
+                    Debug.LogWarning($"マテリアル '{kvp.Key?.name}' の処理中にエラーが発生しました。スキップします: {ex.Message}");
                 }
             }
 
             Undo.CollapseUndoOperations(undoGroup);
 
-            string resultMessage = asVariant 
-                ? $"{clonedCount}個のMaterial Variantを作成しました。" 
-                : $"{clonedCount}個のマテリアルを複製しました。";
-            Debug.Log(resultMessage);
+            string operationType = asVariant ? "Material Variant作成" : "マテリアル複製";
+            string resultMessage = $"{operationType}: {clonedCount}個成功";
+            if (skippedCount > 0)
+            {
+                resultMessage += $", {skippedCount}個スキップ";
+                Debug.LogWarning(resultMessage);
+            }
+            else
+            {
+                Debug.Log(resultMessage);
+            }
         }
 
         /// <summary>
