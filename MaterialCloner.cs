@@ -8,6 +8,7 @@ namespace MaterialSetup
 {
     /// <summary>
     /// マテリアルの複製と参照差し替えを行うユーティリティクラス
+    /// バーサーカーモード: 同一シェーダーで初期値のマテリアルを新規作成して差し替え
     /// </summary>
     public static class MaterialCloner
     {
@@ -75,6 +76,85 @@ namespace MaterialSetup
 
             string operationType = asVariant ? "Material Variant作成" : "マテリアル複製";
             string resultMessage = $"{operationType}: {clonedCount}個成功";
+            if (skippedCount > 0)
+            {
+                resultMessage += $", {skippedCount}個スキップ";
+                Debug.LogWarning(resultMessage);
+            }
+            else
+            {
+                Debug.Log(resultMessage);
+            }
+        }
+
+        /// <summary>
+        /// バーサーカーモード: 対象マテリアルと同じシェーダーで初期値のマテリアルを新規作成し、差し替える
+        /// </summary>
+        /// <param name="target">対象のGameObject</param>
+        public static void BerserkerSetup(GameObject target)
+        {
+            if (target == null)
+            {
+                Debug.LogWarning("対象のGameObjectが指定されていません。");
+                return;
+            }
+
+            // マテリアルとそれを使用しているRendererを収集
+            var materialRenderers = CollectMaterials(target);
+
+            if (materialRenderers.Count == 0)
+            {
+                Debug.Log("セットアップするマテリアルが見つかりませんでした。");
+                return;
+            }
+
+            // 確認ダイアログ
+            int materialCount = materialRenderers.Count;
+            if (!EditorUtility.DisplayDialog(
+                "バーサーカーモード",
+                $"{materialCount}個のマテリアルを初期値でセットアップします。\n" +
+                "元のマテリアルのプロパティは引き継がれません。\n" +
+                "実行しますか？",
+                "実行", "キャンセル"))
+            {
+                return;
+            }
+
+            Undo.SetCurrentGroupName("バーサーカーモード: 初期値マテリアルで差し替え");
+            int undoGroup = Undo.GetCurrentGroup();
+
+            int createdCount = 0;
+            int skippedCount = 0;
+
+            foreach (var kvp in materialRenderers)
+            {
+                try
+                {
+                    Material original = kvp.Key;
+                    List<RendererMaterialSlot> slots = kvp.Value;
+
+                    Material fresh = CreateFreshMaterial(original);
+
+                    if (fresh != null)
+                    {
+                        ReplaceMaterialReferences(slots, original, fresh);
+                        createdCount++;
+                    }
+                    else
+                    {
+                        skippedCount++;
+                    }
+                }
+                catch (System.Exception ex)
+                {
+                    skippedCount++;
+                    Debug.LogWarning($"マテリアル '{kvp.Key?.name}' の処理中にエラーが発生しました。スキップします: {ex.Message}");
+                }
+            }
+
+            Undo.CollapseUndoOperations(undoGroup);
+
+            string resultMessage = $"バーサーカーモード: {createdCount}個作成";
             if (skippedCount > 0)
             {
                 resultMessage += $", {skippedCount}個スキップ";
@@ -171,6 +251,38 @@ namespace MaterialSetup
 
             string destPath = $"{destFolder}/{uniqueName}.mat";
             AssetDatabase.CreateAsset(variant, destPath);
+
+            return AssetDatabase.LoadAssetAtPath<Material>(destPath);
+        }
+
+        /// <summary>
+        /// 同一シェーダーで初期値のマテリアルを新規作成して保存する
+        /// </summary>
+        private static Material CreateFreshMaterial(Material original)
+        {
+            string originalPath = AssetDatabase.GetAssetPath(original);
+            if (string.IsNullOrEmpty(originalPath))
+            {
+                Debug.LogWarning($"マテリアル '{original.name}' のパスを取得できませんでした。");
+                return null;
+            }
+
+            string destFolder = GetCloneFolderPath(originalPath);
+            EnsureFolderExists(destFolder);
+
+            // ユニークな名前を生成
+            string baseName = GetBaseName(original.name);
+            string uniqueName = GetUniqueMaterialName(baseName, destFolder);
+
+            // 同じシェーダーで新規マテリアルを作成（プロパティは全てデフォルト値）
+            Material fresh = new Material(original.shader);
+            fresh.name = uniqueName;
+
+            // RenderQueueはシェーダーのデフォルト値を使用
+            fresh.renderQueue = -1;
+
+            string destPath = $"{destFolder}/{uniqueName}.mat";
+            AssetDatabase.CreateAsset(fresh, destPath);
 
             return AssetDatabase.LoadAssetAtPath<Material>(destPath);
         }

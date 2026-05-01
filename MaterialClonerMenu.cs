@@ -41,5 +41,21 @@ namespace MaterialSetup
         {
             return Selection.activeGameObject != null;
         }
+
+        [MenuItem(MenuPath + "バーサーカーモード（初期値で新規作成）", false, 20)]
+        private static void BerserkerSetup()
+        {
+            GameObject selected = Selection.activeGameObject;
+            if (selected != null)
+            {
+                MaterialCloner.BerserkerSetup(selected);
+            }
+        }
+
+        [MenuItem(MenuPath + "バーサーカーモード（初期値で新規作成）", true)]
+        private static bool ValidateBerserkerSetup()
+        {
+            return Selection.activeGameObject != null;
+        }
     }
 }
