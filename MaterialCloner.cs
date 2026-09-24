@@ -13,7 +13,7 @@ namespace MaterialSetup
     public static class MaterialCloner
     {
         private const string CloneFolderName = "clone";
-        private static readonly Regex TrailingNumberPattern = new Regex(@"^(.+?)( \d+)?$", RegexOptions.Compiled);
+        private static readonly Regex TrailingNumberPattern = new Regex(@"^(.+?)(?: (\d+))?$", RegexOptions.Compiled);
 
         /// <summary>
         /// 指定したGameObjectとその子のメッシュに含まれるマテリアルを複製し、参照を差し替える
@@ -28,8 +28,24 @@ namespace MaterialSetup
                 return;
             }
 
+            CloneMaterials(new[] { target }, asVariant);
+        }
+
+        /// <summary>
+        /// 指定したGameObject群とその子のメッシュに含まれるマテリアルを複製し、参照を差し替える
+        /// </summary>
+        /// <param name="targets">対象のGameObject群</param>
+        /// <param name="asVariant">trueの場合、Material Variantとして作成</param>
+        public static void CloneMaterials(IEnumerable<GameObject> targets, bool asVariant = false)
+        {
+            if (targets == null)
+            {
+                Debug.LogWarning("対象のGameObjectが指定されていません。");
+                return;
+            }
+
             // マテリアルとそれを使用しているRendererを収集
-            var materialRenderers = CollectMaterials(target);
+            var materialRenderers = CollectMaterials(targets);
 
             if (materialRenderers.Count == 0)
             {
@@ -73,6 +89,7 @@ namespace MaterialSetup
             }
 
             Undo.CollapseUndoOperations(undoGroup);
+            AssetDatabase.SaveAssets();
 
             string operationType = asVariant ? "Material Variant作成" : "マテリアル複製";
             string resultMessage = $"{operationType}: {clonedCount}個成功";
@@ -99,8 +116,23 @@ namespace MaterialSetup
                 return;
             }
 
+            BerserkerSetup(new[] { target });
+        }
+
+        /// <summary>
+        /// バーサーカーモード: 対象マテリアルと同じシェーダーで初期値のマテリアルを新規作成し、差し替える
+        /// </summary>
+        /// <param name="targets">対象のGameObject群</param>
+        public static void BerserkerSetup(IEnumerable<GameObject> targets)
+        {
+            if (targets == null)
+            {
+                Debug.LogWarning("対象のGameObjectが指定されていません。");
+                return;
+            }
+
             // マテリアルとそれを使用しているRendererを収集
-            var materialRenderers = CollectMaterials(target);
+            var materialRenderers = CollectMaterials(targets);
 
             if (materialRenderers.Count == 0)
             {
@@ -153,6 +185,7 @@ namespace MaterialSetup
             }
 
             Undo.CollapseUndoOperations(undoGroup);
+            AssetDatabase.SaveAssets();
 
             string resultMessage = $"バーサーカーモード: {createdCount}個作成";
             if (skippedCount > 0)
@@ -167,29 +200,37 @@ namespace MaterialSetup
         }
 
         /// <summary>
-        /// GameObjectとその子から全てのマテリアルとそれを使用しているRendererを収集する
+        /// GameObject群とその子から全てのマテリアルとそれを使用しているRendererを収集する
         /// </summary>
-        private static Dictionary<Material, List<RendererMaterialSlot>> CollectMaterials(GameObject target)
+        private static Dictionary<Material, List<RendererMaterialSlot>> CollectMaterials(IEnumerable<GameObject> targets)
         {
             var result = new Dictionary<Material, List<RendererMaterialSlot>>();
-            var renderers = target.GetComponentsInChildren<Renderer>(true);
+            var seenRenderers = new HashSet<Renderer>();
 
-            foreach (var renderer in renderers)
+            foreach (var target in targets)
             {
-                var materials = renderer.sharedMaterials;
-                for (int i = 0; i < materials.Length; i++)
+                if (target == null) continue;
+
+                var renderers = target.GetComponentsInChildren<Renderer>(true);
+                foreach (var renderer in renderers)
                 {
-                    Material mat = materials[i];
-                    if (mat == null) continue;
+                    if (renderer == null || !seenRenderers.Add(renderer)) continue;
 
-                    // アセットとして保存されているマテリアルのみ対象
-                    if (!AssetDatabase.Contains(mat)) continue;
-
-                    if (!result.ContainsKey(mat))
+                    var materials = renderer.sharedMaterials;
+                    for (int i = 0; i < materials.Length; i++)
                     {
-                        result[mat] = new List<RendererMaterialSlot>();
+                        Material mat = materials[i];
+                        if (mat == null) continue;
+
+                        // アセットとして保存されているマテリアルのみ対象
+                        if (!AssetDatabase.Contains(mat)) continue;
+
+                        if (!result.ContainsKey(mat))
+                        {
+                            result[mat] = new List<RendererMaterialSlot>();
+                        }
+                        result[mat].Add(new RendererMaterialSlot(renderer, i));
                     }
-                    result[mat].Add(new RendererMaterialSlot(renderer, i));
                 }
             }
 
@@ -211,9 +252,8 @@ namespace MaterialSetup
             string destFolder = GetCloneFolderPath(originalPath);
             EnsureFolderExists(destFolder);
 
-            // ユニークな名前を生成
-            string baseName = GetBaseName(original.name);
-            string uniqueName = GetUniqueMaterialName(baseName, destFolder);
+            // ナンバリング付きのユニークな名前を生成
+            string uniqueName = GetUniqueMaterialName(original.name, destFolder);
 
             // マテリアルを複製
             Material cloned = Object.Instantiate(original);
@@ -240,9 +280,8 @@ namespace MaterialSetup
             string destFolder = GetCloneFolderPath(originalPath);
             EnsureFolderExists(destFolder);
 
-            // ユニークな名前を生成
-            string baseName = GetBaseName(original.name);
-            string uniqueName = GetUniqueMaterialName(baseName, destFolder);
+            // ナンバリング付きのユニークな名前を生成
+            string uniqueName = GetUniqueMaterialName(original.name, destFolder);
 
             // Material Variantを作成
             Material variant = new Material(original);
@@ -270,9 +309,8 @@ namespace MaterialSetup
             string destFolder = GetCloneFolderPath(originalPath);
             EnsureFolderExists(destFolder);
 
-            // ユニークな名前を生成
-            string baseName = GetBaseName(original.name);
-            string uniqueName = GetUniqueMaterialName(baseName, destFolder);
+            // ナンバリング付きのユニークな名前を生成
+            string uniqueName = GetUniqueMaterialName(original.name, destFolder);
 
             // 同じシェーダーで新規マテリアルを作成（プロパティは全てデフォルト値）
             Material fresh = new Material(original.shader);
@@ -324,43 +362,42 @@ namespace MaterialSetup
         private static string GetBaseName(string name)
         {
             Match match = TrailingNumberPattern.Match(name);
-            return match.Success ? match.Groups[1].Value : name;
+            return (match.Success && match.Groups[1].Success) ? match.Groups[1].Value : name;
         }
 
         /// <summary>
-        /// 指定フォルダ内でユニークなマテリアル名を生成する
+        /// 指定フォルダ内でユニークなマテリアル名を生成する（デフォルトでナンバリングを付与）
         /// </summary>
-        private static string GetUniqueMaterialName(string baseName, string folderPath)
+        private static string GetUniqueMaterialName(string originalName, string folderPath)
         {
+            var match = TrailingNumberPattern.Match(originalName);
+            string baseName = originalName;
+            int startNumber = 1;
+
+            if (match.Success && match.Groups[2].Success && int.TryParse(match.Groups[2].Value, out int originalNum))
+            {
+                baseName = match.Groups[1].Value;
+                startNumber = originalNum + 1;
+            }
+
             // フォルダ内の既存マテリアルを取得
-            var existingNames = new HashSet<string>();
+            var existingNames = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
             string[] guids = AssetDatabase.FindAssets("t:Material", new[] { folderPath });
 
             foreach (string guid in guids)
             {
                 string path = AssetDatabase.GUIDToAssetPath(guid);
                 string existingName = Path.GetFileNameWithoutExtension(path);
-                string existingBase = GetBaseName(existingName);
-
-                // ベース名が同じものを記録
-                if (existingBase.Equals(baseName, System.StringComparison.OrdinalIgnoreCase))
-                {
-                    existingNames.Add(existingName);
-                }
+                existingNames.Add(existingName);
             }
 
-            // ベース名そのものが使われていなければそれを使用
-            if (!existingNames.Contains(baseName))
-            {
-                return baseName;
-            }
-
-            // 使用可能な番号を探す
-            int number = 1;
+            // 使用可能な番号を探す（元の名前と重複せず、かつフォルダ内に同名がない番号）
+            int number = startNumber;
             while (true)
             {
                 string candidate = $"{baseName} {number}";
-                if (!existingNames.Contains(candidate))
+                string candidatePath = $"{folderPath}/{candidate}.mat";
+                if (!existingNames.Contains(candidate) && !File.Exists(candidatePath) && !candidate.Equals(originalName, System.StringComparison.OrdinalIgnoreCase))
                 {
                     return candidate;
                 }
@@ -373,15 +410,42 @@ namespace MaterialSetup
         /// </summary>
         private static void ReplaceMaterialReferences(List<RendererMaterialSlot> slots, Material original, Material replacement)
         {
+            var rendererSlots = new Dictionary<Renderer, List<int>>();
             foreach (var slot in slots)
             {
-                Undo.RecordObject(slot.Renderer, "マテリアル参照の差し替え");
-
-                var materials = slot.Renderer.sharedMaterials;
-                if (slot.SlotIndex < materials.Length && materials[slot.SlotIndex] == original)
+                if (slot.Renderer == null) continue;
+                if (!rendererSlots.TryGetValue(slot.Renderer, out var indices))
                 {
-                    materials[slot.SlotIndex] = replacement;
-                    slot.Renderer.sharedMaterials = materials;
+                    indices = new List<int>();
+                    rendererSlots[slot.Renderer] = indices;
+                }
+                indices.Add(slot.SlotIndex);
+            }
+
+            foreach (var kvp in rendererSlots)
+            {
+                Renderer renderer = kvp.Key;
+                List<int> indices = kvp.Value;
+
+                Undo.RecordObject(renderer, "マテリアル参照の差し替え");
+
+                var materials = renderer.sharedMaterials;
+                bool modified = false;
+
+                foreach (int index in indices)
+                {
+                    if (index >= 0 && index < materials.Length && materials[index] == original)
+                    {
+                        materials[index] = replacement;
+                        modified = true;
+                    }
+                }
+
+                if (modified)
+                {
+                    renderer.sharedMaterials = materials;
+                    EditorUtility.SetDirty(renderer);
+                    PrefabUtility.RecordPrefabInstancePropertyModifications(renderer);
                 }
             }
         }
@@ -402,3 +466,4 @@ namespace MaterialSetup
         }
     }
 }
+
